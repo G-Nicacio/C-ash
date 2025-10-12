@@ -1,0 +1,14 @@
+// While e For
+reserve i: int = 0;
+reserve j: int = 0;
+
+display("Contando ate 5 com while:");
+while (i < 5) {
+  display(i);
+  i = i + 1;
+}
+
+display("Contando ate 3 com for:");
+for (j = 0; j < 3; j = j + 1;) {
+  display(j);
+}

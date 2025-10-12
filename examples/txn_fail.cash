@@ -1,0 +1,16 @@
+bank PocketBR {
+  currency = BRL;
+  policy limit daily 2000$BRL;
+}
+
+open PocketBR("Ash", email="ash@cash.dev") as br;
+reserve saldo: money = 100000$BRL;
+
+transaction {
+  display("Tentando transferência...");
+  enforce(br, saldo);
+  xfer(br, br, saldo * 2); // Falha proposital (acima do limite)
+  display("Esse print não deveria aparecer!");
+} onfail {
+  display("Transação revertida com sucesso.");
+}

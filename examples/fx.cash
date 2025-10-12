@@ -1,0 +1,24 @@
+// Demonstra bank/policy/connect + fx_rate + transaction
+
+bank PocketFX {
+  currency = USD;
+  policy limit daily 5000$USD;
+  connect CentralBank using fx {
+    spread 200bp;
+    max_per_day 10000$USD;
+  };
+}
+
+open PocketFX("Ash", email="ash@cash.dev") as usd;
+reserve saldo: money = 3000$USD;
+
+transaction {
+  display("Conversao via fx_rate (stub VM retorna 1):");
+  reserve rate: int = fx_rate("USD", "BRL");
+  display(rate);
+
+  display("Debitando 1/3 do saldo...");
+  xfer(usd, usd, saldo / 3);
+} onfail {
+  display("Falha na transacao.");
+}

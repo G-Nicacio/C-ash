@@ -5,8 +5,8 @@
  * - Variáveis armazenadas por nome simbólico (STORE <name> / LOAD <name>).
  * - Expressões empilham valores; operações consomem pilha.
  * - Controle de fluxo com labels .L<n>.
- * - transaction { } onfail { } torna blocos e labels; rollback é delegada à VM.
- * - Chamada xfer(...) exige guarda enforce(...) no mesmo bloco (marca E001).
+ * - transaction { } onfail { } vira TX_BEGIN/COMMIT/ROLLBACK; rollback é da VM.
+ * - xfer(...) exige enforce(...) no mesmo escopo (marca E001 em comentário).
  * =============================================================================
  */
 
@@ -20,7 +20,7 @@
 /* ---------- Config de saída ------------------------------------------------ */
 
 typedef struct GuardScope {
-  int enforce_seen;            /* se vimos alguma guarda neste bloco */
+  int enforce_seen;            /* se vimos alguma enforce(...) neste bloco */
   struct GuardScope* parent;
 } GuardScope;
 
@@ -84,13 +84,10 @@ static void gen_stmt(CG* cg, AST* s);
 
 /* ---------- Literais & variáveis ------------------------------------------ */
 static void gen_push_money(CG* cg, MoneyLit m) {
-  /* Representa money como inteiro 'm.val' + moeda 'm.ccy'.
-     VM decide escala (Q24.8) e moeda. */
+  /* money como inteiro + moeda; VM decide escala. */
   emitf(cg, "PUSH_MONEY %d, %s", m.val, m.ccy);
 }
 static void gen_push_string(CG* cg, const char* s) {
-  /* Emite string com aspas preservadas (escape simples). */
-  /* Nota: para demo, imprimimos como está; um montador robusto deveria escapar. */
   emitf(cg, "PUSH_STR \"%s\"", s ? s : "");
 }
 static void gen_push_int(CG* cg, int v) {
@@ -130,14 +127,14 @@ static void gen_cmp(CG* cg, int op, AST* a, AST* b) {
   }
 }
 static void gen_logic(CG* cg, int op, AST* a, AST* b) {
-  /* Avaliação com short-circuit */
+  /* Avaliação com short-circuit (bem simples) */
   int Lend = new_label(cg);
   int Lskip = new_label(cg);
   if (op == T_AND) {
-    gen_expr(cg, a);                 /* empilha A */
+    gen_expr(cg, a);
     emit(cg, "DUP");
     emit(cg, "JZ .Lfalse_tmp");      /* se !A -> false */
-    gen_expr(cg, b);                 /* empilha B */
+    gen_expr(cg, b);
     emit(cg, "AND");
     emitf(cg, "JMP .L%d", Lend);
     emit(cg, ".Lfalse_tmp:");
@@ -156,7 +153,6 @@ static void gen_logic(CG* cg, int op, AST* a, AST* b) {
     emit(cg, "PUSH_I 1");
     emitf(cg, ".L%d:", Lend);
   } else {
-    /* fallback lógico simples (sem short-circuit) */
     gen_expr(cg, a);
     gen_expr(cg, b);
     emitf(cg, "; TODO LOGIC op=%d", op);
@@ -175,7 +171,6 @@ static void gen_expr(CG* cg, AST* e) {
     case NK_UNOP:
       gen_expr(cg, e->unop.rhs);
       if (e->unop.op == '-') emit(cg, "NEG");
-      /* '+' unário não faz nada */
       break;
 
     case NK_BINOP:
@@ -191,20 +186,11 @@ static void gen_expr(CG* cg, AST* e) {
       break;
 
     case NK_CALL:
-      /* call como expressão: empilha retorno */
-      /* built-ins de exemplo: now(), region(), fx_rate(from,to) */
-      if (strcmp(e->call.name,"now")==0) {
-        emit(cg, "CALL now");
-      } else if (strcmp(e->call.name,"region")==0) {
-        emit(cg, "CALL region");
-      } else if (strcmp(e->call.name,"fx_rate")==0) {
-        /* args já vêm como parte do nó; aqui assumimos dois argumentos já empilhados */
-        /* Estratégia: gerar os args e chamar */
-        for (size_t i=0;i<e->call.args->count;i++) gen_expr(cg, e->call.args->items[i]);
+      /* Empilha args e chama */
+      for (size_t i=0;i<e->call.args->count;i++) gen_expr(cg, e->call.args->items[i]);
+      if (strcmp(e->call.name,"fx_rate")==0) {
         emit(cg, "CALL fx_rate  ; expects (from:str,to:str) -> money");
       } else {
-        /* genérico: empilha args, chama */
-        for (size_t i=0;i<e->call.args->count;i++) gen_expr(cg, e->call.args->items[i]);
         emitf(cg, "CALL %s", e->call.name);
       }
       break;
@@ -217,7 +203,6 @@ static void gen_expr(CG* cg, AST* e) {
 
 /* ---------- Declarações/assign ------------------------------------------- */
 static void gen_decl(CG* cg, AST* d) {
-  /* Reserva símbolo por nome; se init existe, avalia e armazena. */
   emitf(cg, "; reserve %s : %s", d->decl.name, d->decl.typestr?d->decl.typestr:"(infer)");
   if (d->decl.init) {
     gen_expr(cg, d->decl.init);
@@ -257,15 +242,11 @@ static void gen_while(CG* cg, AST* n) {
 
 static void gen_for(CG* cg, AST* n) {
   int Lbeg = new_label(cg), Lend = new_label(cg);
-  /* init */
   gen_stmt(cg, n->for_.init);
   emitf(cg, ".L%d:", Lbeg);
-  /* cond */
   gen_expr(cg, n->for_.cond);
   emitf(cg, "JZ .L%d", Lend);
-  /* body */
   gen_node(cg, n->for_.body);
-  /* step */
   gen_stmt(cg, n->for_.step);
   emitf(cg, "JMP .L%d", Lbeg);
   emitf(cg, ".L%d:", Lend);
@@ -280,17 +261,13 @@ static void gen_txn(CG* cg, AST* n) {
   cg->in_transaction = 1;
   cg->tx_level++;
 
-  /* Cada transaction começa um escopo de guarda novo */
-  guard_push(cg);
+  guard_push(cg); /* novo escopo de guarda */
 
-  /* corpo */
   gen_node(cg, n->txn.body);
 
-  /* sucesso */
   emit(cg, "TX_COMMIT");
   emitf(cg, "JMP .L%d", Lend);
 
-  /* falha */
   emitf(cg, ".L%d:", Lfail);
   emit(cg, "TX_ROLLBACK");
   gen_node(cg, n->txn.onfail);
@@ -298,7 +275,6 @@ static void gen_txn(CG* cg, AST* n) {
   emitf(cg, ".L%d:", Lend);
   emit(cg, "; --- TRANSACTION END ---");
 
-  /* fecha escopo de guarda da transação */
   guard_pop(cg);
 
   cg->tx_level--;
@@ -312,21 +288,11 @@ static int is_call_named(AST* c, const char* name) {
 }
 
 static void gen_call(CG* cg, AST* c) {
-  /* Built-ins principais:
-     - display(str)
-     - print(str)
-     - xfer(from, to, amount)   [requer enforce no bloco/txn]
-     - beep(int)
-     - approve/deny/cap/step_up/route_escrow/delay/notify  (antifraude)
-     - open(...) as ... (já tratado fora)
-  */
-
   /* Empilha argumentos em ordem */
   for (size_t i=0; c->call.args && i<c->call.args->count; i++) {
     gen_expr(cg, c->call.args->items[i]);
   }
 
-  /* Marca guarda quando apropriado */
   if (is_call_named(c, "enforce")) {
     guard_mark_enforce(cg);
     emit(cg, "CALL enforce");
@@ -338,7 +304,6 @@ static void gen_call(CG* cg, AST* c) {
   if (is_call_named(c, "beep"))    { emit(cg, "CALL beep");    return; }
 
   if (is_call_named(c, "xfer")) {
-    /* Regra E001: xfer precisa de enforce no escopo */
     if (!guard_seen(cg)) {
       emit(cg, "; E001: xfer sem guarda antifraude no escopo! (requer enforce(...))");
     }
@@ -349,7 +314,6 @@ static void gen_call(CG* cg, AST* c) {
     return;
   }
 
-  /* Antifraude helpers (stubs de VM) */
   if (is_call_named(c, "approve"))       { emit(cg, "CALL approve"); return; }
   if (is_call_named(c, "deny"))          { emit(cg, "CALL deny"); return; }
   if (is_call_named(c, "cap"))           { emit(cg, "CALL cap"); return; }
@@ -358,13 +322,11 @@ static void gen_call(CG* cg, AST* c) {
   if (is_call_named(c, "delay"))         { emit(cg, "CALL delay"); return; }
   if (is_call_named(c, "notify"))        { emit(cg, "CALL notify"); return; }
 
-  /* Sensores comuns (se vieram como statement) */
   if (is_call_named(c, "now"))       { emit(cg, "CALL now"); return; }
   if (is_call_named(c, "region"))    { emit(cg, "CALL region"); return; }
   if (is_call_named(c, "net_ok"))    { emit(cg, "CALL net_ok"); return; }
   if (is_call_named(c, "fx_rate"))   { emit(cg, "CALL fx_rate"); return; }
 
-  /* Generics */
   emitf(cg, "CALL %s", c->call.name);
 }
 
@@ -383,31 +345,58 @@ static void gen_stmt(CG* cg, AST* s) {
       if (s->ret.expr) gen_expr(cg, s->ret.expr);
       emit(cg, "RET");
       break;
+
     case NK_BLOCK:
       gen_block(cg, s);
       break;
 
-    /* No-ops (declarativos ou não-implementados no ASM) — comentários: */
-    case NK_BANK:
-      emitf(cg, "; BANK %s currency=%s", s->bank.name, s->bank.ccy); break;
+    /* ---------- Declarativos / Toplevel ---------- */
+    case NK_BANK: {
+      emitf(cg, "; BANK %s currency=%s", s->bank.name, s->bank.ccy);
+      /* AGORA: percorre itens do banco (policies, connect, etc.) */
+      if (s->bank.items && s->bank.items->count) {
+        cg->indent += 2;
+        for (size_t i=0; i<s->bank.items->count; i++) {
+          gen_stmt(cg, s->bank.items->items[i]);
+        }
+        cg->indent -= 2;
+      }
+      break;
+    }
     case NK_POLICY_SIMPLE:
-      emitf(cg, "; POLICY %s;", s->policy_simple.ident); break;
+      emitf(cg, "; POLICY %s;", s->policy_simple.ident);
+      break;
+
     case NK_POLICY_LIMIT:
-      emitf(cg, "; POLICY limit %s %d$ %s",
-            s->policy_limit.scope, s->policy_limit.money.val, s->policy_limit.money.ccy); break;
+      /* sem espaço entre $ e CCY (VM espera 1000$BRL) */
+      emitf(cg, "; POLICY limit %s %d$%s",
+            s->policy_limit.scope,
+            s->policy_limit.money.val,
+            s->policy_limit.money.ccy);
+      break;
+
     case NK_POLICY_BODY:
-      emitf(cg, "; POLICY %s { ... }", s->policy_body.ident); break;
+      emitf(cg, "; POLICY %s { ... }", s->policy_body.ident);
+      break;
+
     case NK_CONNECT_SIMPLE:
-      emitf(cg, "; CONNECT %s;", s->conn_simple.target); break;
+      emitf(cg, "; CONNECT %s;", s->conn_simple.target);
+      break;
+
     case NK_CONNECT_FX:
-      emitf(cg, "; CONNECT %s using fx { ... }", s->conn_fx.target); break;
+      emitf(cg, "; CONNECT %s using fx { ... }", s->conn_fx.target);
+      break;
+
     case NK_RULE:
-      emitf(cg, "; RULE %s { ... }", s->rule.name); break;
+      emitf(cg, "; RULE %s { ... }", s->rule.name);
+      break;
+
     case NK_ON:
-      emitf(cg, "; ON %s { ... }", s->on.eventName); break;
+      emitf(cg, "; ON %s { ... }", s->on.eventName);
+      break;
+
     case NK_FN:
       emitf(cg, "; FN %s : %s  { ... }", s->fn.name, s->fn.rettype?s->fn.rettype:"void");
-      /* (Opcional) poderia gerar label de função e corpo aqui. */
       break;
 
     case NK_DECL:
@@ -415,10 +404,7 @@ static void gen_stmt(CG* cg, AST* s) {
       break;
 
     case NK_OPEN:
-      /* open Bank(...) as var — delega ao runtime/VM para criar conta,
-         mas registramos simbolicamente a variável. */
       emitf(cg, "; OPEN %s as %s", s->open_.bankName, s->open_.varName);
-      /* avalia args (só para efeitos: VM pode consumir num CALL _open) */
       for (size_t i=0; s->open_.args && i<s->open_.args->count; i++) gen_expr(cg, s->open_.args->items[i]);
       emitf(cg, "CALL _open_%s", s->open_.bankName);
       gen_store(cg, s->open_.varName);
@@ -453,13 +439,12 @@ static void gen_node(CG* cg, AST* n) {
     emit(cg, "; === end ===");
     return;
   }
-  /* fallback para nós isolados */
   gen_stmt(cg, n);
 }
 
 /* ---------- API pública --------------------------------------------------- */
 int codegen_to_file(AST* program, const char* outpath) {
-  CG cg = {0};
+  CG cg = (CG){0};
   cg.out = fopen(outpath, "w");
   if (!cg.out) {
     fprintf(stderr, "Erro: não consegui abrir '%s' para escrita.\n", outpath);
@@ -471,7 +456,6 @@ int codegen_to_file(AST* program, const char* outpath) {
   cg.tx_level = 0;
   cg.guard_scope = NULL;
 
-  /* gera */
   gen_node(&cg, program);
 
   fclose(cg.out);

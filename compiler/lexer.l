@@ -111,15 +111,18 @@ STRCHR  ([^"\\]|{ESC})
 {WS}                  ;
 {NL}                  ;
 
+"//".*                         { /* single-line comment */ }
+"/*"([^*]|\*+[^*/])*\*+"/"     { /* block comment */ }
+
 \"{STRCHR}*\"         { yylval_param->sval = cash_dup(yytext+1, yyleng-2);
                         return T_STRING; }
 
 {DIGIT}+              { yylval_param->ival = atoi(yytext); return T_NUMBER; }
 
-{DIGIT}+{WS}*"$"{WS}*{CCY} {
-                        fill_money_from_text(yylval_param, yytext, yyleng, yylineno);
-                        return T_MONEYLIT;
-                      }
+{DIGIT}+[ \t]*\$[ \t]*{CCY} {
+  fill_money_from_text(yylval_param, yytext, yyleng, yylineno);
+  return T_MONEYLIT;
+}
 
 "=="                  { return T_EQ; }
 "!="                  { return T_NE; }

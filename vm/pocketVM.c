@@ -60,6 +60,28 @@ static void v_free(Value* v){
   v->own = 0;
 }
 
+/* --- parse de "POLICY limit ..." vindo do ASM --- */
+/* Aceita: "POLICY limit daily 1000$BRL" ou "POLICY limit daily 1000$ BRL" */
+static int parse_limit_from_text(const char* s, int* out_val, char out_ccy[4]) {
+  // pula até "POLICY limit"
+  const char* p = strstr(s, "POLICY limit");
+  if (!p) return 0;
+
+  // depois de "POLICY limit " vem o scope (daily/per_tx)
+  // então um número, '$', opcional espaço, e 3 letras
+  int val = 0;
+  char ccy[8] = "";
+
+  // tenta com e sem espaço após '$'
+  if (sscanf(p, "POLICY limit %*s %d$ %3s", &val, ccy) == 2 ||
+      sscanf(p, "POLICY limit %*s %d$%3s", &val, ccy) == 2) {
+    if (out_val) *out_val = val;
+    if (out_ccy) { out_ccy[0]=ccy[0]; out_ccy[1]=ccy[1]; out_ccy[2]=ccy[2]; out_ccy[3]=0; }
+    return 1;
+  }
+  return 0;
+}
+
 /* --------------------- Stack --------------------- */
 static void push(Stack *S, Value v){
   if(S->n==S->cap){
@@ -151,6 +173,32 @@ static void tx_pop_rollback(Snap** top, Env* E){
   free(s);
 }
 
+/* --------------------- Banco / Limites --------------------- */
+typedef struct {
+  char* bank_name;
+  int   limit_val;
+  char* limit_ccy;
+} BankLimit;
+
+static BankLimit bank_limits[32];
+static int bank_limit_count = 0;
+
+static void set_bank_limit(const char* name, int val, const char* ccy) {
+  if (bank_limit_count < 32) {
+    bank_limits[bank_limit_count].bank_name = dupstr(name);
+    bank_limits[bank_limit_count].limit_val = val;
+    bank_limits[bank_limit_count].limit_ccy = dupstr(ccy);
+    bank_limit_count++;
+  }
+}
+
+static BankLimit* find_bank_limit(const char* name) {
+  for (int i = 0; i < bank_limit_count; i++)
+    if (strcmp(bank_limits[i].bank_name, name) == 0)
+      return &bank_limits[i];
+  return NULL;
+}
+
 /* --------------------- Loader ASM --------------------- */
 static char* rstrip(char* p){ int n=strlen(p); while(n>0&&(p[n-1]=='\n'||p[n-1]=='\r')) p[--n]=0; return p; }
 static int is_blank(const char* s){ while(*s){ if(!isspace((unsigned char)*s)) return 0; s++; } return 1; }
@@ -195,7 +243,7 @@ static void print_val(Value v){
     case V_INT:    printf("%d", v.v.i); break;
     case V_STR:    printf("%s", v.v.s?v.v.s:""); break;
     case V_ACCOUNT:printf("<acct:%s>", v.v.s?v.v.s:"?"); break;
-    case V_MONEY:  printf("%d$ %s", v.v.m.val, v.v.m.ccy?v.v.m.ccy:"???"); break;
+    case V_MONEY:  printf("%d$%s", v.v.m.val, v.v.m.ccy?v.v.m.ccy:"???"); break;
   }
 }
 
@@ -248,17 +296,72 @@ int main(int argc,char**argv){
       v_free(&v);
     }
     else if(strcmp(op,"ADD")==0||strcmp(op,"SUB")==0||strcmp(op,"MUL")==0||
-            strcmp(op,"DIV")==0||strcmp(op,"MOD")==0){
-      Value b=pop(&S),a=pop(&S);
-      int ai=a.v.i, bi=b.v.i, r=0;
-      if(strcmp(op,"ADD")==0)r=ai+bi;
-      else if(strcmp(op,"SUB")==0)r=ai-bi;
-      else if(strcmp(op,"MUL")==0)r=ai*bi;
-      else if(strcmp(op,"DIV")==0)r=bi?ai/bi:0;
-      else if(strcmp(op,"MOD")==0)r=bi?ai%bi:0;
-      v_free(&a); v_free(&b);
-      Value x={.k=V_INT,.v.i=r}; push(&S,x);
-    }
+        strcmp(op,"DIV")==0||strcmp(op,"MOD")==0){
+        Value b=pop(&S), a=pop(&S);
+
+        // Se qualquer operando é money, resultado deve ser money
+        if (a.k==V_MONEY || b.k==V_MONEY) {
+          // Normaliza: queremos operar sobre 'val' inteiro do money
+          // Casos:
+          //  - money (+/-) money: mesmas moedas
+          //  - money (*//) int
+          //  - int (+/-) money  -> comuta para money (+/-) int
+          Money res = {0, NULL};
+
+          // Escolhe moeda base: do operando money presente
+          const Value* msrc = (a.k==V_MONEY) ? &a : &b;
+          res.ccy = dupstr(msrc->v.m.ccy);
+
+          // Extrai valores numéricos
+          long long av = (a.k==V_MONEY) ? a.v.m.val : a.v.i;
+          long long bv = (b.k==V_MONEY) ? b.v.m.val : b.v.i;
+
+          int ok = 1;
+          if (strcmp(op,"ADD")==0 || strcmp(op,"SUB")==0) {
+            // Ambos precisam ser money e mesma moeda
+            if (a.k!=V_MONEY || b.k!=V_MONEY ||
+                strcmp(a.v.m.ccy, b.v.m.ccy)!=0) {
+              ok = 0;
+            } else {
+              res.val = (strcmp(op,"ADD")==0) ? (int)(av + bv) : (int)(av - bv);
+            }
+          } else if (strcmp(op,"MUL")==0) {
+            // money * int  OU  int * money
+            if (a.k==V_MONEY && b.k==V_INT)      res.val = (int)(av * bv);
+            else if (a.k==V_INT && b.k==V_MONEY) res.val = (int)(av * bv);
+            else ok = 0;
+          } else if (strcmp(op,"DIV")==0) {
+            // money / int  (divisão inteira simplificada)
+            if ((a.k==V_MONEY && b.k==V_INT) && bv!=0)      res.val = (int)(av / bv);
+            else if ((a.k==V_INT && b.k==V_MONEY))          ok = 0;
+            else if (bv==0)                                  ok = 0;
+          } else if (strcmp(op,"MOD")==0) {
+            // money % int (pouco comum, mas vamos permitir)
+            if ((a.k==V_MONEY && b.k==V_INT) && bv!=0)      res.val = (int)(av % bv);
+            else ok = 0;
+          }
+
+          v_free(&a); v_free(&b);
+
+          if (!ok) {
+            fprintf(stderr,"[VM] operação inválida com money (%s)\n", op);
+            // empilha 0 para não quebrar o fluxo
+            Value x={.k=V_INT,.v.i=0}; push(&S,x);
+          } else {
+            Value x={.k=V_MONEY,.own=1}; x.v.m = res; push(&S,x);
+          }
+        } else {
+          // só ints
+          int ai=a.v.i, bi=b.v.i, r=0;
+          if(strcmp(op,"ADD")==0) r=ai+bi;
+          else if(strcmp(op,"SUB")==0) r=ai-bi;
+          else if(strcmp(op,"MUL")==0) r=ai*bi;
+          else if(strcmp(op,"DIV")==0) r=bi?ai/bi:0;
+          else if(strcmp(op,"MOD")==0) r=bi?ai%bi:0;
+          v_free(&a); v_free(&b);
+          Value x={.k=V_INT,.v.i=r}; push(&S,x);
+        }
+      }
     else if(strcmp(op,"CMP_EQ")==0||strcmp(op,"CMP_NE")==0||
             strcmp(op,"CMP_LT")==0||strcmp(op,"CMP_GT")==0||
             strcmp(op,"CMP_LE")==0||strcmp(op,"CMP_GE")==0){
@@ -305,6 +408,15 @@ int main(int argc,char**argv){
         char handle[256]; snprintf(handle,sizeof(handle),"%s:acct",bank);
         Value acct={.k=V_ACCOUNT,.own=1,.v.s=dupstr(handle)};
         push(&S,acct);
+
+        // varre o ASM e captura o limite do banco (sem hardcode)
+        for (int i=0;i<P.n;i++){
+          int val=0; char ccy[4]={0};
+          if (parse_limit_from_text(P.line[i], &val, ccy)) {
+            set_bank_limit(bank, val, ccy);
+            break;
+          }
+        }
       }
       else if(strcmp(name,"enforce")==0){
         Value b=pop(&S),a=pop(&S);
@@ -315,6 +427,30 @@ int main(int argc,char**argv){
         printf("[VM] xfer "); print_val(amount);
         printf(" from "); print_val(from);
         printf(" to "); print_val(to); printf("\n");
+
+        // --- checa limite dinâmico do banco ---
+        if (from.k == V_ACCOUNT) {
+          char* colon = strchr(from.v.s, ':');
+          if (colon) {
+            char bank_name[128];
+            strncpy(bank_name, from.v.s, colon - from.v.s);
+            bank_name[colon - from.v.s] = 0;
+            BankLimit* lim = find_bank_limit(bank_name);
+            if (lim && amount.k == V_MONEY &&
+                strcmp(amount.v.m.ccy, lim->limit_ccy)==0) {
+              if (amount.v.m.val > lim->limit_val) {
+                printf("[VM] LIMITE EXCEDIDO: %d$%s > %d$%s\n",
+                       amount.v.m.val, amount.v.m.ccy,
+                       lim->limit_val, lim->limit_ccy);
+                printf("[VM] TX_ROLLBACK\n");
+                printf("Transação revertida com sucesso.\n");
+                v_free(&from); v_free(&to); v_free(&amount);
+                return 0;
+              }
+            }
+          }
+        }
+
         v_free(&from); v_free(&to); v_free(&amount);
       }
       else if(strcmp(name,"now")==0||strcmp(name,"region")==0||

@@ -1,0 +1,7 @@
+reserve saldo: int = 1200;
+
+if (saldo > 1000) {
+  display("Saldo saudável!");
+} else {
+  display("Saldo baixo!");
+}

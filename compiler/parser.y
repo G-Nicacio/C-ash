@@ -218,9 +218,19 @@ bank_item
   ;
 
 policy_decl
-  : T_POLICY T_IDENT policy_body    { $$ = ast_policy_body($2, $3); }
+  : T_POLICY T_IDENT policy_body
+    { $$ = ast_policy_body($2, $3); }
+
+  /* forma curta já suportada: policy daily/per_tx 1000$BRL; */
   | T_POLICY limit_kind money_lit ';'
     { $$ = ast_policy_limit($2, $3); }
+
+  /* NOVO: forma longa: policy limit daily/per_tx 1000$BRL; */
+  | T_POLICY T_IDENT limit_kind money_lit ';'
+    {
+      /* $2 deve ser "limit" (se quiser, valide em ast_policy_limit) */
+      $$ = ast_policy_limit($3, $4);
+    }
   ;
 
 limit_kind

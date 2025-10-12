@@ -1,0 +1,21 @@
+// Operações aritméticas e ordem de precedência
+reserve a: int = 10;
+reserve b: int = 3;
+
+display("Soma:");
+display(a + b);
+
+display("Subtracao:");
+display(a - b);
+
+display("Multiplicacao:");
+display(a * b);
+
+display("Divisao inteira:");
+display(a / b);
+
+display("Modulo:");
+display(a % b);
+
+display("Composicao:");
+display(a + b * 2 - (a % b));

@@ -39,6 +39,12 @@ run: all
 	$(CASHC) $(EX) $(BUILD)/out.asm
 	$(POCKETVM) $(BUILD)/out.asm
 
+run-example:
+	$(MAKE) -C compiler
+	mkdir -p $(PWD)/build
+	$(PWD)/compiler/cashc examples/$(EX).cash $(PWD)/build/$(EX).asm
+	$(PWD)/build/pocketvm $(PWD)/build/$(EX).asm
+
 clean:
 	$(MAKE) -C compiler clean
 	rm -rf $(BUILD)
