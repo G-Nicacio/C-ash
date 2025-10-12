@@ -1,4 +1,4 @@
-#include "Ast.h"
+#include "ast.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -340,7 +340,9 @@ void ast_dump(AST* n, int ind) {
 
     case NK_RETURN:
       indent(ind); fprintf(stderr,"RETURN\n");
-      if (n->ret.expr) ast_dump(n->ret.expr, ind+2); break;
+      if (n->ret.expr) { ast_dump(n->ret.expr, ind+2); }
+      break;
+
 
     case NK_CALL:
       indent(ind); fprintf(stderr,"CALL %s(...)\n", n->call.name);

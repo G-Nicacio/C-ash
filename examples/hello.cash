@@ -1,0 +1,21 @@
+bank PocketBR {
+  currency = BRL;
+  policy daily 5000$ BRL;
+  connect CentralBank using fx {
+    spread 200 bp;
+    max_per_day 10000$ BRL;
+  };
+}
+
+open PocketBR("Ash", email="ash@cash.dev") as br;
+
+reserve saldo: money = 1000$ BRL;
+
+transaction {
+  display("Iniciando transação...");
+  enforce(br, saldo);
+  xfer(br, br, saldo / 2);
+  display("Transferência concluída!");
+} onfail {
+  display("Falha na transação!");
+}

@@ -9,8 +9,11 @@ parser.c parser.h: parser.y
 lexer.c: lexer.l parser.h
 	flex --header-file=lexer.h -o lexer.c lexer.l
 
-cashc: parser.o lexer.o ast.o codegen.o
-	$(CC) $(CFLAGS) -o cashc parser.o lexer.o ast.o codegen.o
+cashc: parser.o lexer.o ast.o codegen.o main.o
+	$(CC) $(CFLAGS) -o cashc parser.o lexer.o ast.o codegen.o main.o
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
 	rm -f *.o parser.c parser.h parser.output lexer.c lexer.h cashc

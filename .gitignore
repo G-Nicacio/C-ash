@@ -1,0 +1,8 @@
+/build/
+/compiler/parser.c
+/compiler/parser.h
+/compiler/parser.output
+/compiler/lexer.c
+/compiler/lexer.h
+/compiler/*.o
+/compiler/cashc
