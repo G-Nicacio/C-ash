@@ -70,6 +70,5 @@ int main(int argc, char** argv) {
      ast_dump(program, 0);
      ast_free(program);
   */
-  printf("ok: gerado '%s'\n", outpath);
   return 0;
 }
