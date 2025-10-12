@@ -1,10 +1,5 @@
 /* =============================================================================
  * C-ash Parser (Bison)
- * -----------------------------------------------------------------------------
- * - Gramática alinhada com a EBNF enviada.
- * - Constrói AST usando funções ast_* (implementar em ast.c/ast.h).
- * - Precedência/associatividade: unário > * / % > + - > rel > == != > && > ||
- * - Eventos, bank/policy/connect, transaction, rule, on, open, reserve, etc.
  * =============================================================================
  */
 
@@ -28,7 +23,10 @@
   /* yylex reentrante com locations */
   int yylex(YYSTYPE* yylval_param, YYLTYPE* yylloc_param, void* scanner);
 
-  /* acumulador do programa (só no .c, não no header) */
+  /* protótipo de yyerror com a assinatura que o Bison usa */
+  void yyerror(YYLTYPE* yyllocp, void* scanner, AST** out_ast, const char* msg);
+
+  /* acumulador do programa, usado nas ações sem “vazar” pro header */
   static AST* g_program = NULL;
 }
 
