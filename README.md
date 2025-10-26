@@ -3,6 +3,13 @@ Uma linguagem de programação de domínio específico (DSL) para **sistemas ban
 
 Se quiser, instale a extensão do VSCode "C-ash Icons" e clique em "Set file theme" para colocar a logo do C-ash ao lado de arquivos `.cash`. Some com todos os outros ícones mas oh well, acontece.
 
+Para rodar, faça no terminal:
+
+```
+make
+make run-example EX={nome do arquivo (sem o .cash)}
+```
+
 ## Objetivo
 - Minimizar riscos de erro humano em sistemas financeiros
 - Tornar regras de negócio legíveis e auditáveis
