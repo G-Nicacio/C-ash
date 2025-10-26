@@ -1,6 +1,8 @@
 # C-ash
 Uma linguagem de programação de domínio específico (DSL) para **sistemas bancários digitais, maquininhas e caixas eletrônicos virtuais**.
 
+Se quiser, instale a extensão do VSCode "C-ash Icons" e clique em "Set file theme" para colocar a logo do C-ash ao lado de arquivos `.cash`. Some com todos os outros ícones mas oh well, acontece.
+
 ## Objetivo
 - Minimizar riscos de erro humano em sistemas financeiros
 - Tornar regras de negócio legíveis e auditáveis
