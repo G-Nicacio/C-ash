@@ -1,0 +1,8 @@
+{
+  "iconDefinitions": {
+    "_cash": { "iconPath": "./icons/cash.png" }
+  },
+  "fileExtensions": {
+    "cash": "_cash"
+  }
+}
