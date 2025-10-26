@@ -79,7 +79,6 @@
 /* ------------------------------ Tipagem ---------------------------------- */
 /* faltantes p/ resolver os erros */
 %type  <node> policy_stmt
-%type  <node> ret_type_opt
 %type  <node> block_items_opt block_items
 
 %type  <node> program header secrets_decl datasource_decl import_decl toplevel
@@ -346,26 +345,28 @@ call_arg
 /* =============================== Funções ================================= */
 
 func_decl
-  : T_FN T_IDENT '(' params_opt ')' ret_type_opt block
-    { $$ = ast_fn($2, $4, (const char*)$6, $7); }
-  ;
+  /* nova forma simplificada: fn greet(name) { ... } */
+  : T_FN T_IDENT '(' params_opt ')' block
+    { $$ = ast_fn($2, $4, NULL, $6); }
 
-ret_type_opt
-  : /* vazio */                      { $$ = (AST*)NULL; }
-  | ':' type                         { /* se quiser string do tipo: ast_type_name-> guarda nome */ $$ = $2; }
+  /* forma antiga ainda suportada: fn greet(name): str { ... } */
+  | T_FN T_IDENT '(' params_opt ')' ':' type block
+    { $$ = ast_fn($2, $4, (const char*)$7, $8); }
   ;
 
 params
   : param                  { $$ = ast_list_new(); ast_list_add($$, $1); }
   | params ',' param       { ast_list_add($1, $3); $$ = $1; }
   ;
+
 params_opt
   : /* vazio */            { $$ = ast_list_new(); }
   | params                 { $$ = $1; }
   ;
 
 param
-  : T_IDENT ':' type                 { /* usa ast_type_name-> guarda name/type textual */ $$ = ast_param($1, NULL); (void)$3; }
+  : T_IDENT ':' type                 { $$ = ast_param($1, NULL); (void)$3; }  /* tipado */
+  | T_IDENT                          { $$ = ast_param($1, NULL); }            /* sem tipo */
   ;
 
 /* ============================== Regras/On ================================ */

@@ -1,5 +1,6 @@
 known issues:
 
+# PATCHED
 - this: 
 
             bank PocketBR {
@@ -21,7 +22,7 @@ known issues:
 
 works and shouldnt (should raise an exception for different currencies, shouldnt be able to xfer automatically brl to usd account. Xfer between brl and usd should exist and should work, but not like this, before declaring at least an `if brl: brl_in_usd = brl * brl_to_usd`)
 
-
+# PATCHED
 - this:
 
             bank PocketUS {
@@ -43,7 +44,7 @@ works and shouldnt (should raise an exception for different currencies, shouldnt
 
 works and shouldnt (should raise an exception for 'bank PocketBR not declared')
 
-
+# PATCHED
 - functions dont work. this:
 
             fn greet(name) {

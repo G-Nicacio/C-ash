@@ -14,7 +14,7 @@ reserve saldo: money = 1000$ BRL;
 transaction {
   display("Iniciando transação...");
   enforce(br, saldo);
-  xfer(br, br, saldo / 2);
+  xfer(br, br, saldo / 2$BRL);
   display("Transferência concluída!");
 } onfail {
   display("Falha na transação!");

@@ -1,0 +1,7 @@
+fn greet(name) {
+    display("Hello, ");
+    display(name);
+}
+
+reserve nameEx: string = "Ash";
+greet(nameEx);

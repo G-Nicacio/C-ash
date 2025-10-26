@@ -18,7 +18,7 @@ transaction {
   display(rate);
 
   display("Debitando 1/3 do saldo...");
-  xfer(usd, usd, saldo / 3);
+  xfer(usd, usd, saldo / 3$USD);
 } onfail {
   display("Falha na transacao.");
 }

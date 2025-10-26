@@ -49,6 +49,7 @@
     if (!strcmp(id,"money"))       return T_TMONEY;
     if (!strcmp(id,"bool"))        return T_TBOOL;
     if (!strcmp(id,"str"))         return T_TSTR;
+    if (!strcmp(id,"string"))      return T_TSTR;
 
     /* eventos */
     if (!strcmp(id,"card_insert")) return T_EV_CARD_INSERT;

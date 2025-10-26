@@ -327,7 +327,11 @@ static void gen_call(CG* cg, AST* c) {
   if (is_call_named(c, "net_ok"))    { emit(cg, "CALL net_ok"); return; }
   if (is_call_named(c, "fx_rate"))   { emit(cg, "CALL fx_rate"); return; }
 
-  emitf(cg, "CALL %s", c->call.name);
+  {
+    size_t argc = c->call.args ? c->call.args->count : 0;
+    emitf(cg, "CALLFN %s %zu", c->call.name, argc);
+  }
+  return;
 }
 
 /* ---------- Blocos e statements ------------------------------------------ */
@@ -396,7 +400,18 @@ static void gen_stmt(CG* cg, AST* s) {
       break;
 
     case NK_FN:
-      emitf(cg, "; FN %s : %s  { ... }", s->fn.name, s->fn.rettype?s->fn.rettype:"void");
+      emitf(cg, "; FN %s { ... }", s->fn.name);
+      emitf(cg, ".FN_%s:", s->fn.name);
+
+      if (s->fn.params && s->fn.params->count) {
+        for (size_t i=0; i<s->fn.params->count; i++) {
+          emitf(cg, "PUSH_ARG %zu", i);
+          emitf(cg, "STORE %s", s->fn.params->items[i]->param.name);
+        }
+      }
+
+      gen_block(cg, s->fn.body);
+      emit(cg, "RET");
       break;
 
     case NK_DECL:
